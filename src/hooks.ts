@@ -19,6 +19,18 @@ export function useEntriesForDates(dates: string[]) {
   );
 }
 
+/** Photo thumbnails (entryId → data URL) for the given entries; only those that have one. */
+export function usePhotos(entryIds: string[]) {
+  const key = entryIds.join(',');
+  return (
+    useLiveQuery(async () => {
+      if (!key) return new Map<string, string>();
+      const found = await db.photos.bulkGet(key.split(','));
+      return new Map(found.flatMap((p) => (p ? [[p.entryId, p.dataUrl] as const] : [])));
+    }, [key]) ?? new Map<string, string>()
+  );
+}
+
 export function useFavorites() {
   return (
     useLiveQuery(async () => {

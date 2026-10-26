@@ -1,62 +1,141 @@
-import { useEffect, useRef, useState } from 'react';
-import { AiError, estimateFood, loadApiKey, photoToBase64, type Estimate } from '../ai/estimate';
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
+import { loadApiKey } from '../ai/estimate';
 import { AnimatedNumber } from '../components/AnimatedNumber';
+import { Icon } from '../components/Icon';
 import { PolarBear } from '../components/PolarBear';
 import { ProgressRing } from '../components/ProgressRing';
 import { Sheet } from '../components/Sheet';
 import { SnowBurst } from '../components/SnowBurst';
-import { addEntries, deleteEntry, saveFavorite, updateEntry } from '../db/repo';
+import { SwipeRow } from '../components/SwipeRow';
+import { addEntries, onEntriesAdded, saveFavorite, setEntriesDeleted, updateEntry } from '../db/repo';
 import { MEAL_LABELS, MEAL_SHORT_LABELS, MEAL_TYPES, type FoodEntry, type MealType } from '../db/schema';
-import { useEntriesForDates, useFavorites, useSettings, useToday } from '../hooks';
+import { useEntriesForDates, useFavorites, usePhotos, useSettings } from '../hooks';
 import { addDays, defaultMealForTime, formatDateLong, formatTime, timeOnDate } from '../lib/date';
-import { mascotMessage, moodFor } from '../lib/mascot';
+import { classifySwipe } from '../lib/gesture';
+import { haptic } from '../lib/haptics';
+import { MASCOT_NAME, mascotMessage, moodFor, pickPokeLine } from '../lib/mascot';
 import { summarizeDay } from '../lib/summary';
-import { AiReview } from './AiReview';
+import { showToast } from '../lib/toast';
+import { useCamera } from './Camera';
 import { EntryForm } from './EntryForm';
+import { MEAL_ICON, MEAL_TONE, MOOD_ICON } from './meals';
 
-type SheetState = { kind: 'add' } | { kind: 'edit'; entry: FoodEntry } | { kind: 'ai'; estimate: Estimate } | null;
+type SheetState = { kind: 'add'; meal: MealType } | { kind: 'edit'; entry: FoodEntry } | null;
 
-export function TodayView() {
-  const today = useToday();
-  const [date, setDate] = useState(today);
+interface Props {
+  date: string;
+  today: string;
+  onDateChange: (date: string) => void;
+}
+
+export function TodayView({ date, today, onDateChange }: Props) {
   const settings = useSettings();
   const entries = useEntriesForDates([date]);
-  const favorites = useFavorites();
+  const photos = usePhotos(entries.map((e) => e.id));
+  const camera = useCamera();
   const [sheet, setSheet] = useState<SheetState>(null);
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
+  const [slide, setSlide] = useState<'from-left' | 'from-right' | ''>('');
 
   const summary = summarizeDay(entries, date, settings.dailyTarget);
   const mood = moodFor(summary.total, settings.dailyTarget);
   const suggestedMeal = defaultMealForTime(new Date());
   const isToday = date === today;
 
-  // "nyam" animation, played after the user adds food on this screen.
+  // --- "nyam" reaction whenever food is added for the day on screen (camera, manual, favorites) ---
   const [eatTick, setEatTick] = useState(0);
   const [eating, setEating] = useState(false);
   const eatTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(eatTimer.current), []);
+  const latest = useRef({ date, total: summary.total, target: settings.dailyTarget });
+  useEffect(() => {
+    latest.current = { date, total: summary.total, target: settings.dailyTarget };
+  });
 
-  function playEat() {
+  const playEat = useCallback(() => {
     setEatTick((n) => n + 1);
     setEating(true);
     clearTimeout(eatTimer.current);
     eatTimer.current = setTimeout(() => setEating(false), 1100);
+  }, []);
+
+  useEffect(
+    () =>
+      onEntriesAdded((added) => {
+        const { date: shown, total, target } = latest.current;
+        const forShown = added.filter((e) => e.date === shown);
+        if (forShown.length === 0) return;
+        playEat();
+        const after = total + forShown.reduce((s, e) => s + e.calories, 0);
+        if (moodFor(after, target) === 'proud' && moodFor(total, target) !== 'proud') haptic([20, 40, 20]);
+      }),
+    [playEat],
+  );
+  useEffect(() => () => clearTimeout(eatTimer.current), []);
+
+  // --- tap Salju ---
+  const [poke, setPoke] = useState<{ tick: number; line: string } | null>(null);
+  const pokeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(pokeTimer.current), []);
+  function pokeBear() {
+    haptic(10);
+    setPoke((p) => ({ tick: (p?.tick ?? 0) + 1, line: pickPokeLine(mood, Math.random(), p?.line) }));
+    clearTimeout(pokeTimer.current);
+    pokeTimer.current = setTimeout(() => setPoke(null), 2600);
   }
 
+  // --- change day: arrows or swipe on the summary card ---
+  function goTo(next: string) {
+    if (next > today) return;
+    setSlide(next > date ? 'from-right' : 'from-left');
+    onDateChange(next);
+  }
+  const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
+  const swiped = useRef(false);
+  function onSwipeDown(e: PointerEvent) {
+    swipeStart.current = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+    swiped.current = false;
+  }
+  function onSwipeUp(e: PointerEvent) {
+    const s = swipeStart.current;
+    swipeStart.current = null;
+    if (!s) return;
+    const dir = classifySwipe(e.clientX - s.x, e.clientY - s.y, e.timeStamp - s.t);
+    if (!dir) return;
+    swiped.current = true;
+    haptic(6);
+    goTo(addDays(date, dir === 'left' ? 1 : -1));
+  }
+
+  // --- entries ---
   const newEntryBase = () => ({ date, time: isToday ? new Date().toISOString() : timeOnDate(date, new Date()) });
 
-  async function add(items: Parameters<typeof addEntries>[0]) {
-    await addEntries(items);
-    playEat();
-  }
-
   async function quickAdd(name: string, calories: number, meal: MealType) {
-    await add([{ ...newEntryBase(), name, calories, meal, source: 'favorite' }]);
+    await addEntries([{ ...newEntryBase(), name, calories, meal, source: 'favorite' }]);
+    setSheet(null);
   }
 
-  async function remove(id: string) {
-    setLeaving((s) => new Set(s).add(id));
-    setTimeout(() => void deleteEntry(id), 220);
+  function remove(entry: FoodEntry) {
+    haptic(8);
+    setLeaving((s) => new Set(s).add(entry.id));
+    setTimeout(() => void setEntriesDeleted([entry.id], true), 220);
+    showToast({
+      icon: 'trash',
+      message: `“${entry.name}” dihapus`,
+      actions: [
+        {
+          label: 'Urungkan',
+          icon: 'undo',
+          onClick: () => {
+            setLeaving((s) => {
+              const next = new Set(s);
+              next.delete(entry.id);
+              return next;
+            });
+            void setEntriesDeleted([entry.id], false);
+          },
+        },
+      ],
+    });
   }
 
   const byMeal = MEAL_TYPES.map((meal) => ({
@@ -67,36 +146,56 @@ export function TodayView() {
   return (
     <div className="view">
       <div className="date-nav">
-        <button className="icon-btn" onClick={() => setDate(addDays(date, -1))} aria-label="Hari sebelumnya">
-          ‹
+        <button className="icon-btn" onClick={() => goTo(addDays(date, -1))} aria-label="Hari sebelumnya">
+          <Icon name="chevronLeft" />
         </button>
-        <button className="date-label" onClick={() => setDate(today)} disabled={isToday}>
+        <button className="date-label" onClick={() => goTo(today)} disabled={isToday}>
           {isToday ? 'Hari ini' : formatDateLong(date)}
-          {isToday && <small>{formatDateLong(date)}</small>}
+          <small>{isToday ? formatDateLong(date) : 'Ketuk untuk kembali ke hari ini'}</small>
         </button>
         <button
           className="icon-btn"
-          onClick={() => setDate(addDays(date, 1))}
+          onClick={() => goTo(addDays(date, 1))}
           disabled={isToday}
           aria-label="Hari berikutnya"
         >
-          ›
+          <Icon name="chevronRight" />
         </button>
       </div>
 
-      <section className="card hero" key={date}>
+      <section
+        className={`card hero ${slide}`}
+        key={date}
+        onPointerDown={onSwipeDown}
+        onPointerUp={onSwipeUp}
+        onPointerCancel={() => (swipeStart.current = null)}
+      >
         {mood === 'proud' && <SnowBurst key={`burst-${summary.total}`} />}
         <div className="ring-wrap">
           <ProgressRing progress={summary.progress} size={230} />
-          <div className="ring-center">
+          <button
+            className="ring-center bear-btn"
+            onClick={() => {
+              if (!swiped.current) pokeBear();
+            }}
+            aria-label={`Sentuh ${MASCOT_NAME}`}
+          >
             <PolarBear
               mood={mood}
               eating={eating}
+              poked={poke !== null}
               fishing={summary.total === 0}
               key={`bear-${eatTick}`}
               size={150}
             />
-          </div>
+          </button>
+          {poke && (
+            <div className="float-hearts" key={poke.tick} aria-hidden>
+              <Icon name="heart" tone="#ff8fab" size={18} />
+              <Icon name="heart" tone="#ffb3c6" size={24} />
+              <Icon name="snowflake" tone="#7cc8f2" size={16} />
+            </div>
+          )}
         </div>
         <div className="total-line">
           <strong>
@@ -104,13 +203,17 @@ export function TodayView() {
           </strong>
           <span>/ {settings.dailyTarget.toLocaleString('id-ID')} kkal</span>
         </div>
-        <p className={`speech ${mood === 'stuffed' ? 'over' : ''}`} key={mood}>
-          {mascotMessage(mood, summary.total, settings.dailyTarget)}
+        <p className={`speech ${mood === 'stuffed' && !poke ? 'over' : ''}`} key={poke ? `poke-${poke.tick}` : mood}>
+          <Icon name={poke ? 'heart' : MOOD_ICON[mood]} size={18} />
+          {poke ? poke.line : mascotMessage(mood, summary.total, settings.dailyTarget)}
         </p>
         <div className="meal-grid">
           {MEAL_TYPES.map((m) => (
-            <div key={m} className="meal-stat">
-              <span>{MEAL_SHORT_LABELS[m]}</span>
+            <button key={m} className="meal-stat" onClick={() => setSheet({ kind: 'add', meal: m })}>
+              <span className="meal-stat-head">
+                <Icon name={MEAL_ICON[m]} tone={MEAL_TONE[m]} size={18} />
+                {MEAL_SHORT_LABELS[m]}
+              </span>
               <strong>
                 <AnimatedNumber value={summary.byMeal[m]} />
               </strong>
@@ -118,35 +221,31 @@ export function TodayView() {
                 <div
                   style={{
                     width: `${summary.total > 0 ? (summary.byMeal[m] / summary.total) * 100 : 0}%`,
+                    background: MEAL_TONE[m],
                   }}
                 />
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </section>
 
-      {favorites.length > 0 && (
-        <section>
-          <h2 className="section-title">Tambah cepat</h2>
-          <div className="chips">
-            {favorites.map((f) => (
-              <button
-                key={f.id}
-                className="chip"
-                onClick={() => quickAdd(f.name, f.calories, f.defaultMeal ?? suggestedMeal)}
-              >
-                {f.name} <small>{f.calories}</small>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
+      <div className="quick-actions">
+        <button onClick={() => setSheet({ kind: 'add', meal: suggestedMeal })}>
+          <Icon name="pencil" size={18} />
+          Catat manual
+        </button>
+        <button onClick={camera.pickFromGallery}>
+          <Icon name="image" size={18} />
+          Dari galeri
+        </button>
+      </div>
 
       {entries.length === 0 ? (
-        <div className="empty">
+        <div className="empty card">
+          <Icon name="camera" size={34} tone="var(--accent)" />
           <p>Belum ada catatan{isToday ? ' hari ini' : ''}.</p>
-          <p className="muted">Tekan + untuk menambah makanan.</p>
+          <p className="muted">Foto makananmu pakai tombol kamera, {MASCOT_NAME} yang hitung kalorinya.</p>
         </div>
       ) : (
         byMeal
@@ -154,57 +253,57 @@ export function TodayView() {
           .map((g) => (
             <section key={g.meal}>
               <h2 className="section-title">
-                {MEAL_LABELS[g.meal]} <span>{summary.byMeal[g.meal]} kkal</span>
+                <span className="section-title-name">
+                  <Icon name={MEAL_ICON[g.meal]} tone={MEAL_TONE[g.meal]} size={18} />
+                  {MEAL_LABELS[g.meal]}
+                </span>
+                <span>{summary.byMeal[g.meal].toLocaleString('id-ID')} kkal</span>
               </h2>
               <ul className="entry-list">
                 {g.items.map((e) => (
                   <li key={e.id} className={leaving.has(e.id) ? 'leaving' : ''}>
-                    <button className="entry" onClick={() => setSheet({ kind: 'edit', entry: e })}>
-                      <span className="entry-name">
-                        <span>
-                          {e.source === 'ai' && <span title="Dari AI">✨ </span>}
-                          {e.name}
+                    <SwipeRow onOpen={() => setSheet({ kind: 'edit', entry: e })} onDelete={() => remove(e)}>
+                      {photos.get(e.id) ? (
+                        <img className="entry-thumb" src={photos.get(e.id)} alt="" />
+                      ) : (
+                        <span className="entry-thumb placeholder" style={{ color: MEAL_TONE[e.meal] }}>
+                          <Icon name={e.source === 'ai' ? 'sparkle' : e.source === 'favorite' ? 'star' : MEAL_ICON[e.meal]} size={20} />
                         </span>
-                        <small>{formatTime(e.time)}</small>
+                      )}
+                      <span className="entry-name">
+                        <span>{e.name}</span>
+                        <small>
+                          {formatTime(e.time)}
+                          {e.source === 'ai' && ' · tebakan AI'}
+                        </small>
                       </span>
-                      <span className="entry-kcal">{e.calories} kkal</span>
-                    </button>
+                      <span className="entry-kcal">{e.calories.toLocaleString('id-ID')} kkal</span>
+                    </SwipeRow>
                   </li>
                 ))}
               </ul>
             </section>
           ))
       )}
-
-      <button className="fab" onClick={() => setSheet({ kind: 'add' })} aria-label="Tambah makanan">
-        +
-      </button>
+      {entries.length > 0 && <p className="hint">Geser makanan ke kiri untuk menghapus</p>}
 
       {sheet?.kind === 'add' && (
-        <Sheet title="Tambah makanan" onClose={() => setSheet(null)}>
-          <EntryForm
-            initial={{ meal: suggestedMeal }}
-            submitLabel="Tambah"
-            showFavoriteToggle
+        <Sheet title={`Catat ${MEAL_LABELS[sheet.meal].toLowerCase()}`} onClose={() => setSheet(null)}>
+          <AddSheet
+            meal={sheet.meal}
+            onQuickAdd={quickAdd}
             onSubmit={async (v) => {
-              await add([{ ...newEntryBase(), name: v.name, calories: v.calories, meal: v.meal, source: 'manual' }]);
+              await addEntries([{ ...newEntryBase(), name: v.name, calories: v.calories, meal: v.meal, source: 'manual' }]);
               if (v.saveFavorite) await saveFavorite({ name: v.name, calories: v.calories, defaultMeal: v.meal });
               setSheet(null);
             }}
-          />
-          <AiButtons mealHint={MEAL_LABELS[suggestedMeal]} onResult={(estimate) => setSheet({ kind: 'ai', estimate })} />
-        </Sheet>
-      )}
-
-      {sheet?.kind === 'ai' && (
-        <Sheet title="Periksa hasil AI" onClose={() => setSheet(null)}>
-          <AiReview
-            estimate={sheet.estimate}
-            onCancel={() => setSheet(null)}
-            onConfirm={async (items) => {
-              const base = newEntryBase();
-              await add(items.map((i) => ({ ...base, ...i, source: 'ai' as const })));
+            onAiText={(text) => {
               setSheet(null);
+              camera.analyzeText(text);
+            }}
+            onGallery={() => {
+              setSheet(null);
+              camera.pickFromGallery();
             }}
           />
         </Sheet>
@@ -212,6 +311,7 @@ export function TodayView() {
 
       {sheet?.kind === 'edit' && (
         <Sheet title="Ubah catatan" onClose={() => setSheet(null)}>
+          {photos.get(sheet.entry.id) && <img className="editor-photo" src={photos.get(sheet.entry.id)} alt="" />}
           <EntryForm
             initial={sheet.entry}
             submitLabel="Simpan"
@@ -225,19 +325,22 @@ export function TodayView() {
             <button
               className="danger"
               onClick={() => {
-                void remove(sheet.entry.id);
+                remove(sheet.entry);
                 setSheet(null);
               }}
             >
+              <Icon name="trash" size={18} />
               Hapus
             </button>
             <button
               onClick={async () => {
                 await saveFavorite({ name: sheet.entry.name, calories: sheet.entry.calories, defaultMeal: sheet.entry.meal });
                 setSheet(null);
+                showToast({ icon: 'star', message: `“${sheet.entry.name}” jadi favorit` }, 2500);
               }}
             >
-              ⭐ Jadikan favorit
+              <Icon name="star" size={18} tone="#eaa915" />
+              Jadikan favorit
             </button>
           </div>
         </Sheet>
@@ -246,72 +349,61 @@ export function TodayView() {
   );
 }
 
-function AiButtons({ mealHint, onResult }: { mealHint: string; onResult: (e: Estimate) => void }) {
-  const apiKey = loadApiKey();
-  const fileRef = useRef<HTMLInputElement>(null);
+interface AddSheetProps {
+  meal: MealType;
+  onQuickAdd: (name: string, calories: number, meal: MealType) => void;
+  onSubmit: Parameters<typeof EntryForm>[0]['onSubmit'];
+  onAiText: (text: string) => void;
+  onGallery: () => void;
+}
+
+function AddSheet({ meal, onQuickAdd, onSubmit, onAiText, onGallery }: AddSheetProps) {
+  const favorites = useFavorites();
   const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  if (!apiKey) {
-    return (
-      <p className="muted ai-hint">
-        ✨ Isi API key Anthropic di Pengaturan untuk menebak kalori dari foto atau teks.
-      </p>
-    );
-  }
-
-  async function run(input: { text?: string; file?: File }) {
-    setBusy(true);
-    setError(null);
-    try {
-      const imageBase64 = input.file ? await photoToBase64(input.file) : undefined;
-      onResult(await estimateFood(apiKey!, { text: input.text, imageBase64, mealHint }));
-    } catch (e) {
-      setError(e instanceof AiError ? e.message : 'Gagal memproses. Coba lagi.');
-    } finally {
-      setBusy(false);
-    }
-  }
+  const hasKey = !!loadApiKey();
 
   return (
-    <div className="ai-box">
-      <div className="divider">
-        <span>atau pakai AI</span>
-      </div>
-      <textarea
-        placeholder="Ceritakan makananmu, mis. nasi padang rendang + sayur nangka, es teh manis"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={2}
-        disabled={busy}
-      />
-      <div className="row actions">
-        <button onClick={() => run({ text })} disabled={busy || !text.trim()}>
-          ✨ Tebak dari teks
-        </button>
-        <button onClick={() => fileRef.current?.click()} disabled={busy}>
-          📷 Foto
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          hidden
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = '';
-            if (file) void run({ file, text });
-          }}
-        />
-      </div>
-      {busy && (
-        <p className="muted shimmer-text" role="status">
-          Menganalisis makanan…
-        </p>
+    <>
+      {favorites.length > 0 && (
+        <div>
+          <h3 className="sheet-subtitle">
+            <Icon name="star" size={16} tone="#eaa915" />
+            Favorit
+          </h3>
+          <div className="chips">
+            {favorites.map((f) => (
+              <button key={f.id} className="chip" onClick={() => onQuickAdd(f.name, f.calories, meal)}>
+                {f.name} <small>{f.calories}</small>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
-      {error && <p className="error">{error}</p>}
-    </div>
+
+      <EntryForm initial={{ meal }} submitLabel="Tambah" showFavoriteToggle onSubmit={onSubmit} />
+
+      <div className="ai-box">
+        <div className="divider">
+          <span>atau biar {MASCOT_NAME} yang tebak</span>
+        </div>
+        <textarea
+          placeholder="Ceritakan makananmu, mis. nasi padang rendang + es teh manis"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={2}
+        />
+        <div className="row actions">
+          <button onClick={() => onAiText(text)} disabled={!text.trim()}>
+            <Icon name="sparkle" size={18} tone="#8b7cf6" />
+            Tebak dari teks
+          </button>
+          <button onClick={onGallery}>
+            <Icon name="image" size={18} />
+            Pilih foto
+          </button>
+        </div>
+        {!hasKey && <p className="muted small">Butuh API key Anthropic (diminta saat pertama dipakai).</p>}
+      </div>
+    </>
   );
 }

@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { AnimatedNumber } from '../components/AnimatedNumber';
+import { Icon } from '../components/Icon';
+import { NumberSlider } from '../components/NumberSlider';
 import { PolarBear } from '../components/PolarBear';
 import { SnowBurst } from '../components/SnowBurst';
 import { setDailyTarget } from '../db/repo';
+import { haptic } from '../lib/haptics';
 import { MASCOT_NAME, type Mood } from '../lib/mascot';
 import {
   ACTIVITY_OPTIONS,
@@ -59,33 +62,26 @@ const STEP_LINE = [
   'Ini target harianmu!',
 ];
 
-const num = (s: string) => (s.trim() === '' ? NaN : Number(s.replace(',', '.')));
+/** Slider ranges stay inside the validated limits. */
+const WEIGHT_MAX = 200;
 
 export function Onboarding({ onClose }: { onClose: () => void }) {
-  const saved = loadProfile();
+  const [saved] = useState(loadProfile);
   const [step, setStep] = useState(0);
   const [sex, setSex] = useState<Sex>(saved.sex ?? 'pria');
-  const [age, setAge] = useState(saved.age ? String(saved.age) : '');
-  const [height, setHeight] = useState(saved.heightCm ? String(saved.heightCm) : '');
-  const [weight, setWeight] = useState(saved.weightKg ? String(saved.weightKg) : '');
+  const [age, setAge] = useState(saved.age ?? 25);
+  const [height, setHeight] = useState(saved.heightCm ?? 165);
+  const [weight, setWeight] = useState(saved.weightKg ?? 60);
   const [activity, setActivity] = useState(saved.activity ?? 'ringan');
   const [goal, setGoal] = useState(saved.goal ?? 'jaga');
-  const [error, setError] = useState<string | null>(null);
 
-  const profile: Profile = { sex, age: num(age), heightCm: num(height), weightKg: num(weight), activity, goal };
+  const profile: Profile = { sex, age, heightCm: height, weightKg: weight, activity, goal };
   const result = step === 4 ? dailyTarget(profile) : null;
 
-  function next() {
-    const [min, max] = LIMITS.age;
-    if (step === 0 && !(profile.age >= min && profile.age <= max)) {
-      return setError(`Umur harus antara ${min}–${max}.`);
-    }
-    if (step === 1) {
-      const err = validateProfile(profile);
-      if (err) return setError(err);
-    }
-    setError(null);
-    setStep((s) => s + 1);
+  function go(delta: number) {
+    haptic(delta > 0 ? 8 : 5);
+    if (step + delta === 4) haptic([20, 40, 30]);
+    setStep((s) => s + delta);
   }
 
   function skip() {
@@ -94,7 +90,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
   }
 
   async function apply() {
-    if (!result) return;
+    if (!result || validateProfile(profile)) return;
     saveProfile(profile);
     await setDailyTarget(result.target);
     markDone();
@@ -127,44 +123,56 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
           <>
             <div className="seg">
               {(['pria', 'wanita'] as const).map((s) => (
-                <button key={s} className={sex === s ? 'on' : ''} onClick={() => setSex(s)}>
-                  {s === 'pria' ? '👨 Pria' : '👩 Wanita'}
+                <button
+                  key={s}
+                  className={sex === s ? 'on' : ''}
+                  onClick={() => {
+                    haptic(5);
+                    setSex(s);
+                  }}
+                >
+                  <Icon name={s === 'pria' ? 'male' : 'female'} size={22} />
+                  {s === 'pria' ? 'Pria' : 'Wanita'}
                 </button>
               ))}
             </div>
-            <label className="field">
-              Umur
-              <span className="unit-input">
-                <input inputMode="numeric" value={age} onChange={(e) => setAge(e.target.value)} placeholder="25" />
-                <span>tahun</span>
-              </span>
-            </label>
+            <NumberSlider label="Umur" unit="tahun" value={age} min={LIMITS.age[0]} max={LIMITS.age[1]} onChange={setAge} />
           </>
         )}
 
         {step === 1 && (
           <>
-            <label className="field">
-              Tinggi badan
-              <span className="unit-input">
-                <input inputMode="decimal" value={height} onChange={(e) => setHeight(e.target.value)} placeholder="165" />
-                <span>cm</span>
-              </span>
-            </label>
-            <label className="field">
-              Berat badan
-              <span className="unit-input">
-                <input inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="60" />
-                <span>kg</span>
-              </span>
-            </label>
+            <NumberSlider
+              label="Tinggi badan"
+              unit="cm"
+              value={height}
+              min={LIMITS.heightCm[0]}
+              max={LIMITS.heightCm[1]}
+              onChange={setHeight}
+            />
+            <NumberSlider
+              label="Berat badan"
+              unit="kg"
+              value={weight}
+              min={LIMITS.weightKg[0]}
+              max={WEIGHT_MAX}
+              step={0.5}
+              onChange={setWeight}
+            />
           </>
         )}
 
         {step === 2 && (
           <div className="choice-list">
             {ACTIVITY_OPTIONS.map((a) => (
-              <button key={a.id} className={`choice ${activity === a.id ? 'on' : ''}`} onClick={() => setActivity(a.id)}>
+              <button
+                key={a.id}
+                className={`choice ${activity === a.id ? 'on' : ''}`}
+                onClick={() => {
+                  haptic(5);
+                  setActivity(a.id);
+                }}
+              >
                 <strong>{a.label}</strong>
                 <small>{a.hint}</small>
               </button>
@@ -175,7 +183,14 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
         {step === 3 && (
           <div className="choice-list">
             {GOAL_OPTIONS.map((g) => (
-              <button key={g.id} className={`choice ${goal === g.id ? 'on' : ''}`} onClick={() => setGoal(g.id)}>
+              <button
+                key={g.id}
+                className={`choice ${goal === g.id ? 'on' : ''}`}
+                onClick={() => {
+                  haptic(5);
+                  setGoal(g.id);
+                }}
+              >
                 <strong>{g.label}</strong>
                 <small>{g.hint}</small>
               </button>
@@ -197,17 +212,16 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {error && <p className="error">{error}</p>}
       </div>
 
       <div className="onboarding-actions">
         {step > 0 && (
-          <button onClick={() => setStep((s) => s - 1)} aria-label="Kembali">
-            ‹
+          <button onClick={() => go(-1)} aria-label="Kembali">
+            <Icon name="chevronLeft" />
           </button>
         )}
         {step < 4 ? (
-          <button className="primary grow" onClick={next}>
+          <button className="primary grow" onClick={() => go(1)}>
             Lanjut
           </button>
         ) : (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FoodEntry } from '../db/schema';
-import { summarizeDay, summarizeWeek } from './summary';
+import { recentDays, summarizeDay, summarizeWeek } from './summary';
 
 let n = 0;
 function entry(date: string, calories: number, extra: Partial<FoodEntry> = {}): FoodEntry {
@@ -43,6 +43,26 @@ describe('summarizeDay', () => {
 
   it('handles a zero target', () => {
     expect(summarizeDay([entry('2026-01-05', 100)], '2026-01-05', 0).progress).toBe(0);
+  });
+});
+
+describe('recentDays', () => {
+  it('lists only days with entries in the window, newest first', () => {
+    const days = recentDays(
+      [
+        entry('2026-01-10', 500),
+        entry('2026-01-10', 300),
+        entry('2026-01-08', 900),
+        entry('2026-01-09', 400, { deletedAt: 't' }),
+        entry('2025-12-01', 700),
+      ],
+      '2026-01-10',
+      30,
+    );
+    expect(days).toEqual([
+      { date: '2026-01-10', total: 800 },
+      { date: '2026-01-08', total: 900 },
+    ]);
   });
 });
 

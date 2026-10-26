@@ -50,7 +50,10 @@ export interface EstimateInput {
 
 export class AiError extends Error {}
 
-export async function estimateFood(apiKey: string, input: EstimateInput): Promise<Estimate> {
+/** Thrown when the caller aborted the request (user tapped "Batal"). */
+export class AiCancelled extends Error {}
+
+export async function estimateFood(apiKey: string, input: EstimateInput, signal?: AbortSignal): Promise<Estimate> {
   // Loaded lazily so the SDK stays out of the main bundle.
   const [{ default: Anthropic }, { betaZodOutputFormat }] = await Promise.all([
     import('@anthropic-ai/sdk'),
@@ -73,16 +76,20 @@ export async function estimateFood(apiKey: string, input: EstimateInput): Promis
 
   let response;
   try {
-    response = await client.beta.messages.parse({
-      model: AI_MODEL,
-      max_tokens: 16000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      output_config: { effort: 'medium', format: betaZodOutputFormat(EstimateSchema) },
-      system: SYSTEM,
-      messages: [{ role: 'user', content }],
-    });
+    response = await client.beta.messages.parse(
+      {
+        model: AI_MODEL,
+        max_tokens: 16000,
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+        output_config: { effort: 'medium', format: betaZodOutputFormat(EstimateSchema) },
+        system: SYSTEM,
+        messages: [{ role: 'user', content }],
+      },
+      { signal },
+    );
   } catch (e) {
+    if (e instanceof Anthropic.APIUserAbortError) throw new AiCancelled();
     if (e instanceof Anthropic.AuthenticationError) throw new AiError('API key Anthropic tidak valid.');
     if (e instanceof Anthropic.RateLimitError) throw new AiError('Terlalu banyak permintaan, coba lagi sebentar.');
     if (e instanceof Anthropic.APIConnectionError) throw new AiError('Tidak bisa terhubung ke Anthropic. Cek koneksi internet.');
@@ -96,15 +103,34 @@ export async function estimateFood(apiKey: string, input: EstimateInput): Promis
   return response.parsed_output;
 }
 
-/** Downscales a photo to at most `maxSide` px and returns base64 JPEG (no data: prefix). */
-export async function photoToBase64(file: File, maxSide = 1568): Promise<string> {
+/** Downscales an image so its longest side is at most `maxSide` px; returns a JPEG data URL. */
+async function downscale(file: Blob, maxSide: number, quality: number): Promise<string> {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(bitmap.width * scale);
   canvas.height = Math.round(bitmap.height * scale);
-  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const ctx = canvas.getContext('2d')!;
+  // JPEG has no alpha: paint white first so transparent PNGs don't turn black.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   bitmap.close();
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  return canvas.toDataURL('image/jpeg', quality);
+}
+
+/** The photo as base64 JPEG (no data: prefix), sized for the model. */
+export async function photoToBase64(file: Blob): Promise<string> {
+  const dataUrl = await downscale(file, 1568, 0.85);
   return dataUrl.slice(dataUrl.indexOf(',') + 1);
+}
+
+/** A screen-sized preview data URL shown while the photo is analysed. */
+export function photoPreview(file: Blob): Promise<string> {
+  return downscale(file, 720, 0.8);
+}
+
+/** A small thumbnail data URL for the food list. */
+export function photoThumbnail(file: Blob): Promise<string> {
+  return downscale(file, 192, 0.8);
 }

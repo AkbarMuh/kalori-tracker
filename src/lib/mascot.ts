@@ -15,6 +15,30 @@ export function moodFor(total: number, target: number): Mood {
   return 'stuffed';
 }
 
+const POKE_LINES: Record<Mood | 'any', string[]> = {
+  any: [
+    'Hihi, geli!',
+    'Semangat hari ini ya!',
+    'Jangan lupa minum air putih!',
+    `${MASCOT_NAME} sayang kamu!`,
+    'Brrr… dingin, tapi hatiku hangat!',
+    'Foto makananmu, biar aku yang hitung!',
+  ],
+  sleepy: ['Hoaam… lima menit lagi…', 'Aku mimpi makan ikan salmon…'],
+  hungry: ['Perutku keroncongan nih…', 'Makan apa kita hari ini?'],
+  happy: ['Hari ini lancar banget!', 'Pertahankan ya!'],
+  proud: ['Kamu hebat banget!', 'Tos dulu!'],
+  stuffed: ['Jangan pencet perutku, penuh!', 'Besok jalan-jalan yuk…'],
+};
+
+/** A line for when the user taps Salju; `rand` in [0, 1). Never repeats `last` back to back. */
+export function pickPokeLine(mood: Mood, rand: number, last?: string): string {
+  const pool = [...POKE_LINES[mood], ...POKE_LINES.any];
+  let i = Math.floor(rand * pool.length) % pool.length;
+  if (pool[i] === last) i = (i + 1) % pool.length;
+  return pool[i]!;
+}
+
 const fmt = (n: number) => Math.abs(Math.round(n)).toLocaleString('id-ID');
 
 export function mascotMessage(mood: Mood, total: number, target: number): string {
@@ -29,7 +53,7 @@ export function mascotMessage(mood: Mood, total: number, target: number): string
         ? `Mantap! ${MASCOT_NAME} senang, tinggal ${fmt(remaining)} kkal.`
         : `${MASCOT_NAME} senang kamu mencatat makanan!`;
     case 'proud':
-      return `Pas target! ${MASCOT_NAME} bangga sama kamu 🎉`;
+      return `Pas target! ${MASCOT_NAME} bangga sama kamu!`;
     case 'stuffed':
       return `Aduh, ${MASCOT_NAME} kekenyangan… lebih ${fmt(remaining)} kkal.`;
   }

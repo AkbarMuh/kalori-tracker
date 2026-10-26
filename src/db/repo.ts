@@ -23,6 +23,15 @@ function changed() {
   for (const fn of changeListeners) fn();
 }
 
+type AddedListener = (entries: FoodEntry[]) => void;
+const addedListeners = new Set<AddedListener>();
+
+/** Subscribe to newly added entries (used for the mascot's "nyam" reaction). */
+export function onEntriesAdded(fn: AddedListener): () => void {
+  addedListeners.add(fn);
+  return () => addedListeners.delete(fn);
+}
+
 const now = () => new Date().toISOString();
 
 export interface NewEntry {
@@ -34,12 +43,18 @@ export interface NewEntry {
   source: FoodEntry['source'];
 }
 
-export async function addEntries(items: NewEntry[]): Promise<void> {
+export async function addEntries(items: NewEntry[]): Promise<FoodEntry[]> {
   const ts = now();
-  await db.entries.bulkAdd(
-    items.map((i) => ({ ...i, id: crypto.randomUUID(), createdAt: ts, updatedAt: ts })),
-  );
+  const entries = items.map((i) => ({ ...i, id: crypto.randomUUID(), createdAt: ts, updatedAt: ts }));
+  await db.entries.bulkAdd(entries);
   changed();
+  for (const fn of addedListeners) fn(entries);
+  return entries;
+}
+
+/** Attaches one photo thumbnail to several entries (e.g. all items found in one picture). */
+export async function savePhoto(entryIds: string[], dataUrl: string): Promise<void> {
+  await db.photos.bulkPut(entryIds.map((entryId) => ({ entryId, dataUrl })));
 }
 
 export async function updateEntry(
@@ -52,8 +67,20 @@ export async function updateEntry(
 
 /** Soft delete so the deletion propagates through sync. */
 export async function deleteEntry(id: string): Promise<void> {
+  await setEntriesDeleted([id], true);
+}
+
+/** Soft-deletes or restores (undo) entries; either way the change wins the next sync merge. */
+export async function setEntriesDeleted(ids: string[], deleted: boolean): Promise<void> {
   const ts = now();
-  await db.entries.update(id, { deletedAt: ts, updatedAt: ts });
+  await db.entries
+    .where('id')
+    .anyOf(ids)
+    .modify((e) => {
+      if (deleted) e.deletedAt = ts;
+      else delete e.deletedAt;
+      e.updatedAt = ts;
+    });
   changed();
 }
 

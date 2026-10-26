@@ -31,6 +31,19 @@ export function summarizeDay(entries: FoodEntry[], date: string, target: number)
   };
 }
 
+/** Days within the last `n` days (ending at `endDate`) that have entries, newest first. */
+export function recentDays(entries: FoodEntry[], endDate: string, n: number): { date: string; total: number }[] {
+  const keys = new Set(lastNDays(endDate, n));
+  const totals = new Map<string, number>();
+  for (const e of entries) {
+    if (!live(e) || !keys.has(e.date)) continue;
+    totals.set(e.date, (totals.get(e.date) ?? 0) + e.calories);
+  }
+  return [...totals.entries()]
+    .map(([date, total]) => ({ date, total }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
 export interface WeeklySummary {
   days: { date: string; total: number }[];
   target: number;

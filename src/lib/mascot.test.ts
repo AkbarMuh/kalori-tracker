@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mascotMessage, moodFor } from './mascot';
+import { mascotMessage, moodFor, pickPokeLine } from './mascot';
 
 describe('moodFor', () => {
   it.each([
@@ -24,5 +24,22 @@ describe('mascotMessage', () => {
 
   it('mentions how far over target', () => {
     expect(mascotMessage('stuffed', 2600, 2000)).toContain('lebih 600 kkal');
+  });
+});
+
+describe('pickPokeLine', () => {
+  it('can pick mood-specific lines', () => {
+    expect(pickPokeLine('sleepy', 0)).toBe('Hoaam… lima menit lagi…');
+  });
+
+  it('never repeats the previous line back to back', () => {
+    for (let r = 0; r < 1; r += 0.05) {
+      const first = pickPokeLine('happy', r);
+      expect(pickPokeLine('happy', r, first)).not.toBe(first);
+    }
+  });
+
+  it('stays in range for rand close to 1', () => {
+    expect(typeof pickPokeLine('proud', 0.9999)).toBe('string');
   });
 });

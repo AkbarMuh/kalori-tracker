@@ -1,68 +1,119 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
+import { Icon } from './components/Icon';
+import { Splash } from './components/Splash';
 import { SyncBadge } from './components/SyncBadge';
+import { ToastHost } from './components/ToastHost';
 import { db } from './db/db';
-import { FavoritesView } from './features/FavoritesView';
+import { CameraButton, CameraProvider } from './features/Camera';
+import { HistoryView } from './features/HistoryView';
 import { Onboarding, onboardingDone } from './features/Onboarding';
-import { SettingsView } from './features/SettingsView';
+import { SettingsPage } from './features/SettingsPage';
 import { TodayView } from './features/TodayView';
-import { WeekView } from './features/WeekView';
+import { useToday } from './hooks';
+import { haptic } from './lib/haptics';
 
-const TABS = [
-  { id: 'today', label: 'Harian', icon: '🍽️' },
-  { id: 'week', label: 'Mingguan', icon: '📊' },
-  { id: 'favorites', label: 'Favorit', icon: '⭐' },
-  { id: 'settings', label: 'Pengaturan', icon: '⚙️' },
-] as const;
-type TabId = (typeof TABS)[number]['id'];
+type Tab = 'today' | 'history';
+
+const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export function App() {
-  const [tab, setTab] = useState<TabId>('today');
+  const today = useToday();
+  const [tab, setTab] = useState<Tab>('today');
+  // null = follow "today" (also across midnight); otherwise a specific past day.
+  const [pickedDate, setPickedDate] = useState<string | null>(null);
+  const date = pickedDate ?? today;
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [splash, setSplash] = useState(() => !prefersReducedMotion());
+  const endSplash = useCallback(() => setSplash(false), []);
+
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(onboardingDone);
   // undefined while loading, null when no target has ever been saved (on any synced device).
   const savedSettings = useLiveQuery(async () => (await db.settings.get('main')) ?? null, []);
   const showOnboarding = onboardingOpen || (savedSettings === null && !onboardingDismissed);
 
+  const changeDate = (d: string) => setPickedDate(d === today ? null : d);
+  const switchTab = (t: Tab) => {
+    if (t !== tab) haptic(6);
+    setTab(t);
+  };
+
   return (
-    <div className="app">
-      <div className="sky" aria-hidden>
-        <div className="aurora" />
-        <div className="snowfall" />
-      </div>
-      {showOnboarding && (
-        <Onboarding
-          onClose={() => {
-            setOnboardingDismissed(true);
-            setOnboardingOpen(false);
-          }}
-        />
-      )}
-      <header className="topbar">
-        <h1>Kalori</h1>
-        <SyncBadge onClick={() => setTab('settings')} />
-      </header>
+    <CameraProvider date={tab === 'today' ? date : today} isToday={tab !== 'today' || date === today}>
+      <div className="app">
+        <div className="sky" aria-hidden>
+          <div className="aurora" />
+          <div className="snowfall" />
+        </div>
 
-      <main className="content">
-        {tab === 'today' && <TodayView />}
-        {tab === 'week' && <WeekView />}
-        {tab === 'favorites' && <FavoritesView />}
-        {tab === 'settings' && <SettingsView onOpenOnboarding={() => setOnboardingOpen(true)} />}
-      </main>
+        <header className="topbar">
+          <h1>
+            <Icon name="bear" size={26} tone="var(--accent)" />
+            Kalori
+          </h1>
+          <div className="topbar-actions">
+            <SyncBadge onClick={() => setSettingsOpen(true)} />
+            <button className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Pengaturan">
+              <Icon name="settings" size={24} />
+            </button>
+          </div>
+        </header>
 
-      <nav className="tabbar">
-        {TABS.map((t) => (
+        <main className="content">
+          {tab === 'today' ? (
+            <TodayView date={date} today={today} onDateChange={changeDate} />
+          ) : (
+            <HistoryView
+              onOpenDay={(d) => {
+                changeDate(d);
+                switchTab('today');
+              }}
+            />
+          )}
+        </main>
+
+        <nav className="tabbar">
+          <span className={`tab-pill ${tab}`} aria-hidden />
           <button
-            key={t.id}
-            className={tab === t.id ? 'active' : ''}
-            onClick={() => setTab(t.id)}
-            aria-current={tab === t.id ? 'page' : undefined}
+            className={`tab ${tab === 'today' ? 'active' : ''}`}
+            onClick={() => switchTab('today')}
+            aria-current={tab === 'today' ? 'page' : undefined}
           >
-            <span aria-hidden>{t.icon}</span>
-            {t.label}
+            <Icon name="home" size={26} />
+            Hari ini
           </button>
-        ))}
-      </nav>
-    </div>
+          <CameraButton />
+          <button
+            className={`tab ${tab === 'history' ? 'active' : ''}`}
+            onClick={() => switchTab('history')}
+            aria-current={tab === 'history' ? 'page' : undefined}
+          >
+            <Icon name="calendar" size={26} />
+            Riwayat
+          </button>
+        </nav>
+
+        {settingsOpen && (
+          <SettingsPage
+            onClose={() => setSettingsOpen(false)}
+            onOpenOnboarding={() => {
+              setSettingsOpen(false);
+              setOnboardingOpen(true);
+            }}
+          />
+        )}
+        {showOnboarding && (
+          <Onboarding
+            onClose={() => {
+              setOnboardingDismissed(true);
+              setOnboardingOpen(false);
+            }}
+          />
+        )}
+        <ToastHost />
+        {splash && <Splash onDone={endSplash} />}
+      </div>
+    </CameraProvider>
   );
 }

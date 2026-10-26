@@ -1,71 +1,71 @@
 # Kalori Tracker
 
-Aplikasi pencatat kalori harian untuk pemakaian pribadi (satu pengguna). Berupa PWA yang
-di-host di GitHub Pages dan di-install di HP. Data disimpan lokal dan disinkronkan ke repo
-GitHub privat.
+Aplikasi pencatat kalori pribadi (satu pengguna) dengan maskot beruang putih bernama **Salju**.
+**Fitur utamanya: foto makanan → LLM menebak item dan kalorinya → otomatis tercatat.** Berupa PWA
+yang di-host di GitHub Pages dan di-install di HP. Data disimpan lokal dan bisa disinkronkan ke
+repo GitHub privat.
 
 ## Keputusan yang sudah diambil
 
-- **Platform:** Web PWA. Mobile-first dan bisa di-install (Add to Home Screen), tetap nyaman dibuka di laptop.
+- **Platform:** Web PWA, mobile-first, bisa di-install (Add to Home Screen).
 - **Hosting:** GitHub Pages, deploy lewat GitHub Actions setiap push ke `main`.
-- **Penyimpanan:** local-first. IndexedDB adalah sumber kebenaran di perangkat, lalu
-  disinkronkan ke `data.json` di repo GitHub **privat** yang terpisah dari repo kode ini.
-- **Input kalori:** manual, ditambah daftar makanan favorit untuk input cepat.
+- **Penyimpanan:** local-first. IndexedDB adalah sumber kebenaran di perangkat, lalu disinkronkan
+  ke `data.json` di repo GitHub **privat** yang terpisah dari repo kode ini.
+- **Alur utama:** tombol kamera besar di tengah tab bar → foto → Salju menganalisis →
+  entri **langsung tersimpan** (tanpa langkah konfirmasi) → toast "Ubah · Urungkan".
+  Input manual dan teks bebas tetap ada, tapi sebagai jalur sekunder.
+- **Menu minimal:** 2 tab (Hari ini, Riwayat) + kamera di tengah. Pengaturan dibuka dari ikon di
+  pojok kanan atas. Favorit muncul di sheet catat manual dan dikelola di Pengaturan.
+- **Gaya:** tema kutub biru es (aurora di dark mode), maskot Salju, ikon SVG soft bertelinga
+  beruang. **Jangan pakai emoji OS** di UI. Pakai `components/Icon.tsx`.
+- **Animasi pembuka** "Salju bangun tidur" sekitar 4 detik setiap aplikasi dibuka, bisa di-tap untuk lewati.
 - **Bahasa UI:** Bahasa Indonesia.
 
 ## Stack
 
-- Vite + React + TypeScript (strict)
-- Dexie (wrapper IndexedDB)
+- Vite + React 19 + TypeScript (strict)
+- Dexie (IndexedDB), zod (validasi data dan structured output LLM)
 - `vite-plugin-pwa` untuk manifest dan service worker
-- Vitest untuk unit test
-- Grafik mingguan: SVG sederhana buatan sendiri, tanpa library chart dulu
+- `@anthropic-ai/sdk` (di-import secara lazy)
+- Vitest untuk unit test, ESLint (termasuk aturan React Compiler `react-hooks`)
+- Grafik dan maskot: SVG buatan sendiri; semua animasi pakai CSS, tanpa library animasi
 
-Tambahkan dependency hanya kalau benar-benar perlu. Ini proyek pribadi, jadi utamakan kesederhanaan.
+Tambahkan dependency hanya kalau benar-benar perlu.
 
 ## Fitur
 
-### Fase 1 (MVP)
-1. **Catat makanan:** nama, kalori, waktu makan (`sarapan` | `siang` | `malam` | `camilan`), tanggal/jam. Bisa diedit dan dihapus.
-2. **Makanan favorit:** simpan makanan yang sering dicatat, lalu cukup satu tap untuk menambahkannya.
-3. **Target kalori harian:** bisa diatur. Tampilkan total, sisa, dan progress hari ini.
-4. **Ringkasan harian:** total per waktu makan.
-5. **Ringkasan mingguan:** 7 hari terakhir dibandingkan target (grafik batang dan rata-rata).
-6. **Export/import JSON:** backup manual.
+1. **Foto → kalori (inti):** `features/Camera.tsx`. Foto diperkecil (1568px untuk model, 720px
+   untuk preview, 192px untuk thumbnail). Hasil disimpan dengan `source: 'ai'` dan bisa
+   diurungkan atau diedit lewat toast. Analisis bisa dibatalkan (`AbortController`).
+   Kalau API key belum ada, sheet "Atur AI dulu" muncul dan lanjut otomatis setelah key disimpan.
+2. **Thumbnail foto** disimpan di tabel Dexie `photos`, **hanya di perangkat** (tidak ikut sinkron
+   atau export).
+3. **Hari ini:** ring progress dengan Salju di tengah (ekspresi mengikuti progres), total per waktu
+   makan (kartu bisa di-tap untuk catat manual), dan daftar makanan dengan thumbnail.
+4. **Interaksi:** tap Salju (bereaksi + dialog acak), mata Salju mengikuti jari, geser kartu ringkasan
+   untuk ganti hari, geser makanan ke kiri untuk hapus (+ urungkan), getaran pendek (Android).
+5. **Riwayat:** grafik 7 hari (batang bisa di-tap), statistik, daftar 30 hari terakhir dengan
+   ekspresi Salju per hari (tap untuk membuka hari itu).
+6. **Onboarding** (bisa di-skip, bisa dibuka lagi): slider umur/tinggi/berat → target
+   (Mifflin–St Jeor + aktivitas + tujuan, dengan batas aman minimum).
+7. **Sinkron GitHub:** PAT fine-grained (Contents read/write, hanya repo data). Contents API dengan
+   `sha` untuk optimistic concurrency, retry saat konflik 409/422. Merge per record (`updatedAt`
+   terbaru menang), soft delete (`deletedAt`). Kalau sinkron gagal atau offline, UI tidak terblokir.
+8. **Backup:** export/import JSON (import menggabungkan, tidak menimpa).
 
-### Fase 2: Sinkron GitHub
-- Pengguna memasukkan *fine-grained PAT* (izin: Contents read/write, **hanya** untuk repo data), owner, dan nama repo di halaman Pengaturan.
-- Baca/tulis lewat GitHub Contents API (`GET`/`PUT /repos/{owner}/{repo}/contents/data.json`).
-- Pakai `sha` file untuk optimistic concurrency. Kalau `PUT` gagal karena konflik (409/422):
-  ambil versi terbaru, gabungkan, lalu coba lagi.
-- Aturan merge: per record berdasarkan `id`, menang yang `updatedAt` terbaru. Penghapusan memakai
-  soft delete (`deletedAt`) supaya terbawa saat sinkron.
-- Sinkron berjalan saat aplikasi dibuka, setelah ada perubahan (dengan debounce), dan lewat tombol manual.
-  Kalau sinkron gagal atau offline, aplikasi tetap bisa dipakai. Tampilkan status sinkron, jangan memblokir UI.
+## LLM
 
-### Fase 3 (nanti): Foto + LLM
-- Foto makanan, lalu LLM vision memperkirakan nama makanan dan kalorinya. Hasilnya **selalu** bisa diedit pengguna sebelum disimpan.
-- Bisa juga input teks bebas ("nasi goreng + telur ceplok"), lalu LLM memecahnya menjadi item dan kalori.
-- Model: `claude-opus-5-5` lewat `@anthropic-ai/sdk` (`client.beta.messages.parse` + `betaZodOutputFormat`,
-  `fallbacks: 'default'`). Cek dengan skill `claude-api` sebelum mengubah kode ini.
-- **Keputusan:** API key Anthropic milik pengguna disimpan di browser (`localStorage`), seperti PAT, dan
-  dipanggil langsung dari browser (`dangerouslyAllowBrowser: true`). Belum ada backend. Kalau nanti butuh
-  backend (mis. integrasi WhatsApp), pindahkan pemanggilan ke proxy serverless.
-- SDK di-import secara lazy (`import()`) supaya tidak masuk bundle utama.
-- Foto diperkecil ke sisi maksimal 1568px sebelum dikirim, dan **tidak** disimpan ke `data.json`.
-  Yang disimpan cukup hasil estimasinya.
+- Saat ini: `claude-opus-5-5` lewat `client.beta.messages.parse` + `betaZodOutputFormat`,
+  `fallbacks: 'default'`. Cek skill `claude-api` sebelum mengubah kode ini.
+- API key milik pengguna disimpan di `localStorage` dan dipanggil langsung dari browser
+  (`dangerouslyAllowBrowser: true`). Belum ada backend.
+- **Rencana:** pengguna akan memberikan Azure OpenAI (GPT). Buat estimator yang bisa ditukar
+  (provider dipilih di Pengaturan) dan jangan menyebar logika provider ke luar `ai/`.
 
 ## Status
 
-Fase 1–3 sudah diimplementasikan. Alur AI dan sinkron diuji dengan API tiruan. Belum pernah dicoba
-dengan token GitHub atau API key Anthropic sungguhan.
-
-## UI
-
-Mobile-first dan beranimasi: ring progress, angka yang menghitung naik, bottom sheet, item yang
-masuk/keluar dengan animasi, dan grafik batang yang tumbuh. Semua animasi pakai CSS (tanpa library)
-dan dimatikan otomatis jika `prefers-reduced-motion`. Warna didefinisikan sebagai CSS variable di
-`:root` dengan varian dark mode.
+Semua fitur di atas sudah diimplementasikan. Alur foto dan sinkron diuji dengan API tiruan dan
+belum pernah dicoba dengan API key Anthropic atau token GitHub sungguhan.
 
 ## Model data
 
@@ -85,44 +85,38 @@ interface FoodEntry {
   deletedAt?: string;
 }
 
-interface FavoriteFood {
-  id: string;
-  name: string;
-  calories: number;
-  defaultMeal?: MealType;
-  updatedAt: string;
-  deletedAt?: string;
-}
-
-interface Settings {
-  dailyTarget: number;   // kkal
-  updatedAt: string;
-}
+interface FavoriteFood { id; name; calories; defaultMeal?; updatedAt; deletedAt? }
+interface Settings { id: 'main'; dailyTarget: number; updatedAt: string }
+interface Photo { entryId: string; dataUrl: string }   // lokal saja
 ```
 
-`data.json` di repo data berisi `{ version, entries, favorites, settings }`. Naikkan `version` dan
+`data.json` di repo data berisi `{ version, settings, entries, favorites }`. Naikkan `version` dan
 tulis migrasi setiap kali skema berubah.
 
 ## Struktur folder
 
 ```
 src/
-  db/          # schema.ts (zod schema + tipe), db.ts (Dexie), repo.ts (semua penulisan data + event perubahan)
+  db/          # schema.ts (zod + tipe), db.ts (Dexie, termasuk tabel photos), repo.ts (semua penulisan + event)
   sync/        # merge.ts (fungsi murni), github.ts (Contents API), syncService.ts (status + auto-sync)
-  ai/          # estimate.ts (Claude: foto/teks -> item + kalori)
-  features/    # TodayView, WeekView, FavoritesView, SettingsView, EntryForm, AiReview
-  components/  # ProgressRing, AnimatedNumber, Sheet, SyncBadge
-  lib/         # date.ts, summary.ts, backup.ts
+  ai/          # estimate.ts (LLM: foto/teks -> item + kalori; resize foto)
+  features/    # Camera (alur inti), TodayView, HistoryView, SettingsPage, Onboarding, EntryForm, ItemsEditor, meals.ts
+  components/  # Icon, PolarBear, Splash, Sheet, SwipeRow, ToastHost, NumberSlider, ProgressRing, AnimatedNumber, SnowBurst, SyncBadge
+  lib/         # date, summary, mascot, tdee, gesture, toast, haptics, backup
 ```
 
-Semua penulisan data **harus** lewat `db/repo.ts`, supaya `updatedAt` terisi dan sinkron otomatis terpicu.
+Semua penulisan data **harus** lewat `db/repo.ts`, supaya `updatedAt` terisi, sinkron otomatis
+terpicu, dan Salju bereaksi (`onEntriesAdded`).
 
 ## Konvensi
 
-- Logika bisnis (kalkulasi ringkasan, merge sinkron, helper tanggal) ditulis sebagai fungsi murni di luar komponen dan wajib punya unit test.
-- Tanggal selalu dihitung dengan zona waktu lokal perangkat. Jangan pakai `toISOString().slice(0,10)` untuk mendapatkan tanggal hari ini.
-- Jangan pernah commit token, API key, atau data pribadi. PAT dan key hanya disimpan di IndexedDB/localStorage perangkat.
-- Pastikan aplikasi tetap bisa dipakai offline. Fitur jaringan bersifat tambahan.
+- Logika bisnis (ringkasan, merge, tanggal, mood maskot, TDEE, klasifikasi gesture) ditulis
+  sebagai fungsi murni di `lib/` atau `sync/` dan wajib punya unit test.
+- Tanggal selalu memakai zona waktu lokal. Jangan pakai `toISOString().slice(0,10)` untuk tanggal hari ini.
+- Jangan pernah commit token, API key, atau data pribadi.
+- Aplikasi harus tetap bisa dipakai offline. Fitur jaringan bersifat tambahan.
+- Animasi harus menghormati `prefers-reduced-motion` (sudah ditangani global di CSS, dan Splash dilewati).
+- ESLint melarang `setState` sinkron di dalam effect. Picu reaksi dari event handler atau subscription.
 
 ## Perintah
 

@@ -1,7 +1,18 @@
 import { useState } from 'react';
+import { Icon } from '../components/Icon';
 import { MEAL_LABELS, MEAL_TYPES, type MealType } from '../db/schema';
-import type { Estimate } from '../ai/estimate';
 import { parseCalories } from './EntryForm';
+
+export interface EditableItem {
+  name: string;
+  calories: number;
+  meal: MealType;
+}
+
+export interface EditedItem extends EditableItem {
+  /** False when the user unticked the row (it should be removed). */
+  include: boolean;
+}
 
 interface Row {
   include: boolean;
@@ -11,15 +22,18 @@ interface Row {
 }
 
 interface Props {
-  estimate: Estimate;
-  onConfirm: (items: { name: string; calories: number; meal: MealType }[]) => void | Promise<void>;
+  items: EditableItem[];
+  note?: string;
+  photo?: string;
+  confirmLabel: string;
+  onConfirm: (items: EditedItem[]) => void | Promise<void>;
   onCancel: () => void;
 }
 
-/** Lets the user correct the model's estimate before anything is saved. */
-export function AiReview({ estimate, onConfirm, onCancel }: Props) {
+/** Edit a batch of food items (e.g. what the AI found in one photo). Rows keep their order. */
+export function ItemsEditor({ items, note, photo, confirmLabel, onConfirm, onCancel }: Props) {
   const [rows, setRows] = useState<Row[]>(() =>
-    estimate.items.map((i) => ({ include: true, name: i.name, calories: String(i.calories), meal: i.meal })),
+    items.map((i) => ({ include: true, name: i.name, calories: String(i.calories), meal: i.meal })),
   );
   const [error, setError] = useState<string | null>(null);
 
@@ -27,22 +41,21 @@ export function AiReview({ estimate, onConfirm, onCancel }: Props) {
     setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
 
   async function confirm() {
-    const chosen = rows.filter((r) => r.include);
-    const items = chosen.map((r) => ({ name: r.name.trim(), calories: parseCalories(r.calories), meal: r.meal }));
-    if (items.some((i) => !i.name || i.calories === null)) {
+    const parsed = rows.map((r) => ({ ...r, name: r.name.trim(), kcal: parseCalories(r.calories) }));
+    if (parsed.some((r) => r.include && (!r.name || r.kcal === null))) {
       return setError('Periksa nama dan kalori setiap item yang dicentang.');
     }
-    await onConfirm(items.map((i) => ({ ...i, calories: i.calories! })));
+    await onConfirm(parsed.map((r) => ({ include: r.include, name: r.name, calories: r.kcal ?? 0, meal: r.meal })));
   }
 
   const total = rows.reduce((s, r) => s + (r.include ? (parseCalories(r.calories) ?? 0) : 0), 0);
 
   return (
-    <div className="card ai-review">
-      {estimate.note && <p className="muted">{estimate.note}</p>}
-      {rows.length === 0 && <p>Tidak ada makanan yang dikenali.</p>}
+    <div className="items-editor">
+      {photo && <img className="editor-photo" src={photo} alt="" />}
+      {note && <p className="muted">{note}</p>}
       {rows.map((r, idx) => (
-        <div key={idx} className="ai-row">
+        <div key={idx} className={`ai-row ${r.include ? '' : 'excluded'}`}>
           <input
             type="checkbox"
             aria-label="Sertakan"
@@ -68,8 +81,9 @@ export function AiReview({ estimate, onConfirm, onCancel }: Props) {
       ))}
       {error && <p className="error">{error}</p>}
       <div className="row actions">
-        <button className="primary" onClick={confirm} disabled={!rows.some((r) => r.include)}>
-          Tambahkan ({total} kkal)
+        <button className="primary" onClick={confirm}>
+          <Icon name="check" size={18} />
+          {confirmLabel} ({total.toLocaleString('id-ID')} kkal)
         </button>
         <button onClick={onCancel}>Batal</button>
       </div>
