@@ -1,12 +1,15 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AiError, estimateFood, loadApiKey, photoToBase64, type Estimate } from '../ai/estimate';
 import { AnimatedNumber } from '../components/AnimatedNumber';
+import { PolarBear } from '../components/PolarBear';
 import { ProgressRing } from '../components/ProgressRing';
 import { Sheet } from '../components/Sheet';
+import { SnowBurst } from '../components/SnowBurst';
 import { addEntries, deleteEntry, saveFavorite, updateEntry } from '../db/repo';
 import { MEAL_LABELS, MEAL_SHORT_LABELS, MEAL_TYPES, type FoodEntry, type MealType } from '../db/schema';
 import { useEntriesForDates, useFavorites, useSettings, useToday } from '../hooks';
 import { addDays, defaultMealForTime, formatDateLong, formatTime, timeOnDate } from '../lib/date';
+import { mascotMessage, moodFor } from '../lib/mascot';
 import { summarizeDay } from '../lib/summary';
 import { AiReview } from './AiReview';
 import { EntryForm } from './EntryForm';
@@ -23,13 +26,32 @@ export function TodayView() {
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
 
   const summary = summarizeDay(entries, date, settings.dailyTarget);
+  const mood = moodFor(summary.total, settings.dailyTarget);
   const suggestedMeal = defaultMealForTime(new Date());
   const isToday = date === today;
 
+  // "nyam" animation, played after the user adds food on this screen.
+  const [eatTick, setEatTick] = useState(0);
+  const [eating, setEating] = useState(false);
+  const eatTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(eatTimer.current), []);
+
+  function playEat() {
+    setEatTick((n) => n + 1);
+    setEating(true);
+    clearTimeout(eatTimer.current);
+    eatTimer.current = setTimeout(() => setEating(false), 1100);
+  }
+
   const newEntryBase = () => ({ date, time: isToday ? new Date().toISOString() : timeOnDate(date, new Date()) });
 
+  async function add(items: Parameters<typeof addEntries>[0]) {
+    await addEntries(items);
+    playEat();
+  }
+
   async function quickAdd(name: string, calories: number, meal: MealType) {
-    await addEntries([{ ...newEntryBase(), name, calories, meal, source: 'favorite' }]);
+    await add([{ ...newEntryBase(), name, calories, meal, source: 'favorite' }]);
   }
 
   async function remove(id: string) {
@@ -63,25 +85,27 @@ export function TodayView() {
       </div>
 
       <section className="card hero" key={date}>
+        {mood === 'proud' && <SnowBurst key={`burst-${summary.total}`} />}
         <div className="ring-wrap">
-          <ProgressRing progress={summary.progress} />
+          <ProgressRing progress={summary.progress} size={230} />
           <div className="ring-center">
-            <strong>
-              <AnimatedNumber value={summary.total} />
-            </strong>
-            <span>/ {settings.dailyTarget.toLocaleString('id-ID')} kkal</span>
+            <PolarBear
+              mood={mood}
+              eating={eating}
+              fishing={summary.total === 0}
+              key={`bear-${eatTick}`}
+              size={150}
+            />
           </div>
         </div>
-        <p className={`remaining ${summary.remaining < 0 ? 'over' : ''}`}>
-          {summary.remaining >= 0 ? (
-            <>
-              Sisa <AnimatedNumber value={summary.remaining} /> kkal
-            </>
-          ) : (
-            <>
-              Lebih <AnimatedNumber value={-summary.remaining} /> kkal dari target
-            </>
-          )}
+        <div className="total-line">
+          <strong>
+            <AnimatedNumber value={summary.total} />
+          </strong>
+          <span>/ {settings.dailyTarget.toLocaleString('id-ID')} kkal</span>
+        </div>
+        <p className={`speech ${mood === 'stuffed' ? 'over' : ''}`} key={mood}>
+          {mascotMessage(mood, summary.total, settings.dailyTarget)}
         </p>
         <div className="meal-grid">
           {MEAL_TYPES.map((m) => (
@@ -121,9 +145,6 @@ export function TodayView() {
 
       {entries.length === 0 ? (
         <div className="empty">
-          <div className="empty-icon" aria-hidden>
-            🥗
-          </div>
           <p>Belum ada catatan{isToday ? ' hari ini' : ''}.</p>
           <p className="muted">Tekan + untuk menambah makanan.</p>
         </div>
@@ -166,7 +187,7 @@ export function TodayView() {
             submitLabel="Tambah"
             showFavoriteToggle
             onSubmit={async (v) => {
-              await addEntries([{ ...newEntryBase(), name: v.name, calories: v.calories, meal: v.meal, source: 'manual' }]);
+              await add([{ ...newEntryBase(), name: v.name, calories: v.calories, meal: v.meal, source: 'manual' }]);
               if (v.saveFavorite) await saveFavorite({ name: v.name, calories: v.calories, defaultMeal: v.meal });
               setSheet(null);
             }}
@@ -182,7 +203,7 @@ export function TodayView() {
             onCancel={() => setSheet(null)}
             onConfirm={async (items) => {
               const base = newEntryBase();
-              await addEntries(items.map((i) => ({ ...base, ...i, source: 'ai' as const })));
+              await add(items.map((i) => ({ ...base, ...i, source: 'ai' as const })));
               setSheet(null);
             }}
           />

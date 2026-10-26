@@ -6,10 +6,10 @@ import { backupFileName, parseBackup, toBackupBlob } from '../lib/backup';
 import { loadConfig, saveConfig, syncNow } from '../sync/syncService';
 import { parseCalories } from './EntryForm';
 
-export function SettingsView() {
+export function SettingsView({ onOpenOnboarding }: { onOpenOnboarding: () => void }) {
   return (
     <div className="view">
-      <TargetSettings />
+      <TargetSettings onOpenOnboarding={onOpenOnboarding} />
       <SyncSettings />
       <AiSettings />
       <BackupSettings />
@@ -17,7 +17,7 @@ export function SettingsView() {
   );
 }
 
-function TargetSettings() {
+function TargetSettings({ onOpenOnboarding }: { onOpenOnboarding: () => void }) {
   const settings = useSettings();
   const [value, setValue] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -46,6 +46,9 @@ function TargetSettings() {
           {saved ? '✓ Tersimpan' : 'Simpan'}
         </button>
       </form>
+      <button className="link-btn" onClick={onOpenOnboarding}>
+        🐻‍❄️ Hitung ulang target bareng Salju
+      </button>
     </section>
   );
 }
