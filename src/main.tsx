@@ -4,6 +4,7 @@ import { App } from './App';
 import { readSetupHash, saveAiConfig } from './ai/config';
 import { providerLabel } from './ai/estimate';
 import type { Toast } from './lib/toast';
+import { initInstallPrompt } from './lib/install';
 import { consumeJustUpdated, initPwaUpdates } from './pwa';
 import { startAutoSync } from './sync/syncService';
 import './styles.css';
@@ -21,6 +22,7 @@ if (fromLink) {
 const justUpdated = consumeJustUpdated();
 if (justUpdated && !notice) notice = { icon: 'refresh', message: 'Kalori sudah diperbarui ke versi terbaru' };
 
+initInstallPrompt();
 initPwaUpdates();
 startAutoSync();
 

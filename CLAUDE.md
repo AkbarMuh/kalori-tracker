@@ -76,6 +76,13 @@ Tambahkan dependency hanya kalau benar-benar perlu.
   dibuka langsung dipasang (reload saat animasi pembuka). Kalau ditemukan setelahnya, muncul toast
   "Muat ulang". Jangan kembali ke `autoUpdate`/`skipWaiting`, karena halaman yang sedang terbuka bisa
   kehilangan chunk lazy (modul AI) yang lamanya sudah dihapus dari server.
+- Pasang ke Layar Utama (`lib/install.ts`, `features/Install.tsx`): Android/desktop memakai
+  `beforeinstallprompt` (tombol "Pasang"). iOS/iPadOS tidak punya prompt, jadi tampilkan panduan
+  (iOS 26: ••• → Bagikan → Tambahkan ke Layar Utama). Browser in-app (Instagram, FB, dll.) dan WhatsApp
+  (SFSafariViewController) tidak bisa menambahkan ke Layar Utama, jadi arahkan ke "Buka di Safari".
+  iPadOS mengaku sebagai Mac, dan dideteksi lewat `maxTouchPoints`.
+- **iOS: aplikasi di Layar Utama punya penyimpanan sendiri** (terpisah dari Safari). Data dan config AI
+  tidak ikut, jadi kolom Target URI juga menerima link setup `#ai=…`.
 - Ikon: `public/icon.svg` (umum), `icon-maskable.svg` (full-bleed untuk Android/iOS), dan
   `icon-monochrome.svg` (themed icon Android 13+). `npm run icons` membuat semua PNG-nya.
 

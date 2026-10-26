@@ -13,6 +13,7 @@ import { checkForUpdate } from '../pwa';
 import { loadConfig, saveConfig, syncNow } from '../sync/syncService';
 import { AiSetupForm } from './AiSetupForm';
 import { EntryForm, parseCalories } from './EntryForm';
+import { InstallTrigger, useInstall } from './Install';
 
 interface Props {
   onClose: () => void;
@@ -348,6 +349,7 @@ const buildLabel = new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeS
 
 function AboutSection() {
   const [checking, setChecking] = useState(false);
+  const install = useInstall();
 
   async function check() {
     setChecking(true);
@@ -372,6 +374,16 @@ function AboutSection() {
         <Icon name="refresh" size={18} />
         {checking ? 'Memeriksa…' : 'Cek pembaruan'}
       </button>
+      {install.available && (
+        <InstallTrigger>
+          {(start) => (
+            <button className="link-btn" onClick={start}>
+              <Icon name="addSquare" size={18} />
+              Pasang di Layar Utama
+            </button>
+          )}
+        </InstallTrigger>
+      )}
     </Section>
   );
 }

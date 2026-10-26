@@ -3,6 +3,7 @@ import {
   DEFAULT_AZURE_API_VERSION,
   isAiReady,
   parseAzureTarget,
+  readSetupHash,
   saveAiConfig,
   type AiConfig,
   type AiProvider,
@@ -25,12 +26,30 @@ export function AiSetupForm({ initial, submitLabel, onSaved }: Props) {
   const [azureKey, setAzureKey] = useState(initial?.azure?.key ?? '');
   const [anthropicKey, setAnthropicKey] = useState(initial?.anthropicKey ?? '');
   const [showManual, setShowManual] = useState(false);
+  const [linkRead, setLinkRead] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const targetParsed = target.trim() ? parseAzureTarget(target) : null;
 
   function onTarget(value: string) {
     setTarget(value);
+    // A setup link from another device ("Pasang di HP lain") carries the whole config.
+    const hashAt = value.indexOf('#ai=');
+    if (hashAt >= 0) {
+      const fromLink = readSetupHash(value.slice(hashAt).trim());
+      setLinkRead(!!fromLink);
+      if (!fromLink) return;
+      setProvider(fromLink.provider);
+      if (fromLink.azure) {
+        setEndpoint(fromLink.azure.endpoint);
+        setDeployment(fromLink.azure.deployment);
+        setApiVersion(fromLink.azure.apiVersion);
+        setAzureKey(fromLink.azure.key);
+      }
+      if (fromLink.anthropicKey) setAnthropicKey(fromLink.anthropicKey);
+      return;
+    }
+    setLinkRead(false);
     const p = parseAzureTarget(value);
     if (!p) return;
     if (p.endpoint) setEndpoint(p.endpoint);
@@ -74,7 +93,7 @@ export function AiSetupForm({ initial, submitLabel, onSaved }: Props) {
       {provider === 'azure' ? (
         <>
           <label className="field-label">
-            Target URI
+            Target URI atau link setup
             <input
               placeholder="https://…/openai/deployments/…/chat/completions?api-version=…"
               value={target}
@@ -83,6 +102,12 @@ export function AiSetupForm({ initial, submitLabel, onSaved }: Props) {
               spellCheck={false}
             />
           </label>
+          {linkRead && (
+            <p className="muted small status-line">
+              <Icon name="link" size={16} tone="var(--accent)" />
+              Link setup terbaca. Ketuk tombol di bawah untuk menyimpan.
+            </p>
+          )}
           {(endpoint || deployment) && !showManual && (
             <p className="muted small status-line">
               <Icon name="check" size={16} tone="var(--accent)" />
@@ -90,6 +115,7 @@ export function AiSetupForm({ initial, submitLabel, onSaved }: Props) {
             </p>
           )}
           {target.trim() && !targetParsed && <p className="error">Bukan URL https yang valid.</p>}
+          {target.includes('#ai=') && !linkRead && <p className="error">Link setup tidak lengkap atau rusak.</p>}
           <label className="field-label">
             Key
             <input

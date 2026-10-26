@@ -18,6 +18,7 @@ import { summarizeDay } from '../lib/summary';
 import { showToast } from '../lib/toast';
 import { useCamera } from './Camera';
 import { EntryForm } from './EntryForm';
+import { InstallBanner } from './Install';
 import { MEAL_ICON, MEAL_TONE, MOOD_ICON } from './meals';
 
 type SheetState = { kind: 'add'; meal: MealType } | { kind: 'edit'; entry: FoodEntry } | null;
@@ -145,6 +146,7 @@ export function TodayView({ date, today, onDateChange }: Props) {
 
   return (
     <div className="view">
+      <InstallBanner />
       <div className="date-nav">
         <button className="icon-btn" onClick={() => goTo(addDays(date, -1))} aria-label="Hari sebelumnya">
           <Icon name="chevronLeft" />
