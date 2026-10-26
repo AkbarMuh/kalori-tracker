@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
-import { loadApiKey } from '../ai/estimate';
+import { isAiReady, loadAiConfig } from '../ai/config';
 import { AnimatedNumber } from '../components/AnimatedNumber';
 import { Icon } from '../components/Icon';
 import { PolarBear } from '../components/PolarBear';
@@ -360,7 +360,7 @@ interface AddSheetProps {
 function AddSheet({ meal, onQuickAdd, onSubmit, onAiText, onGallery }: AddSheetProps) {
   const favorites = useFavorites();
   const [text, setText] = useState('');
-  const hasKey = !!loadApiKey();
+  const hasAi = isAiReady(loadAiConfig());
 
   return (
     <>
@@ -402,7 +402,7 @@ function AddSheet({ meal, onQuickAdd, onSubmit, onAiText, onGallery }: AddSheetP
             Pilih foto
           </button>
         </div>
-        {!hasKey && <p className="muted small">Butuh API key Anthropic (diminta saat pertama dipakai).</p>}
+        {!hasAi && <p className="muted small">AI belum tersambung; akan diminta saat pertama dipakai.</p>}
       </div>
     </>
   );

@@ -1957,6 +1957,48 @@ button.danger {
   display: flex;
   align-items: center;
   gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.field-label input {
+  font-weight: 400;
+  color: var(--text);
+}
+
+.small-seg button {
+  padding: 10px;
+  font-size: 0.9rem;
+  box-shadow: none;
+  background: var(--surface-2);
+}
+
+.qr-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  text-align: center;
+  animation: pop-in 0.35s var(--spring);
+}
+
+.qr-box img {
+  width: min(240px, 70vw);
+  aspect-ratio: 1;
+  padding: 10px;
+  border-radius: 14px;
+  background: #fff;
 }
 
 /* ---------- toast ---------- */

@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from './components/Icon';
 import { Splash } from './components/Splash';
 import { SyncBadge } from './components/SyncBadge';
@@ -12,20 +12,35 @@ import { SettingsPage } from './features/SettingsPage';
 import { TodayView } from './features/TodayView';
 import { useToday } from './hooks';
 import { haptic } from './lib/haptics';
+import { showToast, type Toast } from './lib/toast';
 
 type Tab = 'today' | 'history';
 
 const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-export function App() {
+interface Props {
+  /** Skip the intro (e.g. right after an update reload). */
+  skipSplash?: boolean;
+  /** Shown once the intro is out of the way. */
+  notice?: Omit<Toast, 'id'>;
+}
+
+export function App({ skipSplash = false, notice }: Props) {
   const today = useToday();
   const [tab, setTab] = useState<Tab>('today');
   // null = follow "today" (also across midnight); otherwise a specific past day.
   const [pickedDate, setPickedDate] = useState<string | null>(null);
   const date = pickedDate ?? today;
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [splash, setSplash] = useState(() => !prefersReducedMotion());
+  const [splash, setSplash] = useState(() => !skipSplash && !prefersReducedMotion());
   const endSplash = useCallback(() => setSplash(false), []);
+
+  const noticeShown = useRef(false);
+  useEffect(() => {
+    if (splash || !notice || noticeShown.current) return;
+    noticeShown.current = true;
+    showToast(notice, 4000);
+  }, [splash, notice]);
 
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(onboardingDone);

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Full-bleed version for launchers that apply their own shape (Android maskable, iOS home screen). -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#sky)"/>
+  <g transform="translate(256 276) scale(0.82) translate(-256 -276)">
+    <circle cx="150" cy="170" r="52" fill="#fff"/>
+    <circle cx="150" cy="170" r="25" fill="#e9f3fa"/>
+    <circle cx="362" cy="170" r="52" fill="#fff"/>
+    <circle cx="362" cy="170" r="25" fill="#e9f3fa"/>
+    <ellipse cx="256" cy="286" rx="168" ry="148" fill="#fff"/>
+    <ellipse cx="256" cy="330" rx="66" ry="50" fill="#e9f3fa"/>
+    <ellipse cx="256" cy="308" rx="25" ry="18" fill="#27323f"/>
+    <path d="M190 268 q22 -26 44 0" stroke="#27323f" stroke-width="13" stroke-linecap="round" fill="none"/>
+    <path d="M278 268 q22 -26 44 0" stroke="#27323f" stroke-width="13" stroke-linecap="round" fill="none"/>
+    <path d="M222 346 q17 19 34 0 q17 19 34 0" stroke="#27323f" stroke-width="10" stroke-linecap="round" fill="none"/>
+    <ellipse cx="170" cy="322" rx="25" ry="15" fill="#ffb3c1" opacity="0.8"/>
+    <ellipse cx="342" cy="322" rx="25" ry="15" fill="#ffb3c1" opacity="0.8"/>
+  </g>
+</svg>

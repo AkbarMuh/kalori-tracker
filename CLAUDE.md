@@ -55,12 +55,29 @@ Tambahkan dependency hanya kalau benar-benar perlu.
 
 ## LLM
 
-- Saat ini: `claude-opus-5-5` lewat `client.beta.messages.parse` + `betaZodOutputFormat`,
-  `fallbacks: 'default'`. Cek skill `claude-api` sebelum mengubah kode ini.
-- API key milik pengguna disimpan di `localStorage` dan dipanggil langsung dari browser
-  (`dangerouslyAllowBrowser: true`). Belum ada backend.
-- **Rencana:** pengguna akan memberikan Azure OpenAI (GPT). Buat estimator yang bisa ditukar
-  (provider dipilih di Pengaturan) dan jangan menyebar logika provider ke luar `ai/`.
+- Provider bisa dipilih (`ai/config.ts`, disimpan di `localStorage` `kalori.ai`); default di form: **Azure OpenAI**.
+  - **Azure** (`ai/azure.ts`): `fetch` langsung ke `…/openai/deployments/{deployment}/chat/completions`
+    dengan header `api-key`, `response_format: json_schema` (strict), dan fallback ke `json_object` kalau
+    deployment menolak schema. Endpoint Azure mengizinkan CORS (`*`). Deployment harus mendukung input
+    gambar dan structured outputs (mis. keluarga gpt-4.1). Pengguna cukup menempel **Target URI** dari
+    portal (`parseAzureTarget`) dan key.
+  - **Claude** (`ai/claude.ts`): `claude-opus-5-5` lewat `client.beta.messages.parse` +
+    `betaZodOutputFormat`, `fallbacks: 'default'`. Cek skill `claude-api` sebelum mengubah kode ini.
+- Kedua provider di-import secara lazy. Hasilnya dinormalkan oleh `normalizeEstimate` (kkal 0–20000).
+- **Jangan pernah menanam key atau endpoint di kode, CLAUDE.md, atau commit.** Repo dan situsnya publik.
+  Untuk pindah perangkat: Pengaturan → "Pasang di HP lain" (QR/link dengan config di fragment
+  `#ai=…`; dibaca di `main.tsx` lalu dihapus dari URL).
+- Tes koneksi Azure yang sungguhan secara lokal: key ada di `.env.local` (git-ignored,
+  `AZURE_TARGET_URI`, `AZURE_KEY`). Jangan pernah mencetak isinya.
+
+## PWA & update
+
+- `registerType: 'prompt'` + `src/pwa.ts`: update yang ditemukan dalam 8 detik pertama setelah aplikasi
+  dibuka langsung dipasang (reload saat animasi pembuka). Kalau ditemukan setelahnya, muncul toast
+  "Muat ulang". Jangan kembali ke `autoUpdate`/`skipWaiting`, karena halaman yang sedang terbuka bisa
+  kehilangan chunk lazy (modul AI) yang lamanya sudah dihapus dari server.
+- Ikon: `public/icon.svg` (umum), `icon-maskable.svg` (full-bleed untuk Android/iOS), dan
+  `icon-monochrome.svg` (themed icon Android 13+). `npm run icons` membuat semua PNG-nya.
 
 ## Status
 
@@ -99,10 +116,12 @@ tulis migrasi setiap kali skema berubah.
 src/
   db/          # schema.ts (zod + tipe), db.ts (Dexie, termasuk tabel photos), repo.ts (semua penulisan + event)
   sync/        # merge.ts (fungsi murni), github.ts (Contents API), syncService.ts (status + auto-sync)
-  ai/          # estimate.ts (LLM: foto/teks -> item + kalori; resize foto)
+  ai/          # config.ts (provider, Target URI, link setup), estimate.ts (skema, prompt, resize foto), azure.ts, claude.ts
   features/    # Camera (alur inti), TodayView, HistoryView, SettingsPage, Onboarding, EntryForm, ItemsEditor, meals.ts
   components/  # Icon, PolarBear, Splash, Sheet, SwipeRow, ToastHost, NumberSlider, ProgressRing, AnimatedNumber, SnowBurst, SyncBadge
   lib/         # date, summary, mascot, tdee, gesture, toast, haptics, backup
+  pwa.ts       # registrasi service worker + alur update
+scripts/       # launcher-icons.mjs (ikon monokrom, maskable, dan apple-touch)
 ```
 
 Semua penulisan data **harus** lewat `db/repo.ts`, supaya `updatedAt` terisi, sinkron otomatis
@@ -129,7 +148,7 @@ npm run build      # typecheck + build produksi ke dist/
 npm test           # vitest
 npm run lint       # eslint
 npm run typecheck
-npm run icons      # buat ulang ikon PWA dari public/icon.svg
+npm run icons      # buat ulang semua ikon PWA (generator + scripts/launcher-icons.mjs)
 ```
 
 Deploy: `.github/workflows/deploy.yml` menjalankan lint, test, dan build dengan

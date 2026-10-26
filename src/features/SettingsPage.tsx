@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { AI_MODEL, loadApiKey, saveApiKey } from '../ai/estimate';
+import { isAiReady, loadAiConfig, setupLink } from '../ai/config';
+import { AiError, estimateFood, providerLabel } from '../ai/estimate';
 import { Icon, type IconName } from '../components/Icon';
 import { Sheet } from '../components/Sheet';
 import { deleteFavorite, exportAll, mergeIntoLocal, saveFavorite, setDailyTarget } from '../db/repo';
@@ -7,7 +8,10 @@ import { MEAL_LABELS, type FavoriteFood } from '../db/schema';
 import { useFavorites, useSettings, useSyncState, useToday } from '../hooks';
 import { backupFileName, parseBackup, toBackupBlob } from '../lib/backup';
 import { MASCOT_NAME } from '../lib/mascot';
+import { showToast } from '../lib/toast';
+import { checkForUpdate } from '../pwa';
 import { loadConfig, saveConfig, syncNow } from '../sync/syncService';
+import { AiSetupForm } from './AiSetupForm';
 import { EntryForm, parseCalories } from './EntryForm';
 
 interface Props {
@@ -37,6 +41,7 @@ export function SettingsPage({ onClose, onOpenOnboarding }: Props) {
         <FavoriteSettings />
         <SyncSettings />
         <BackupSettings />
+        <AboutSection />
       </div>
     </div>
   );
@@ -102,39 +107,95 @@ function TargetSettings({ onOpenOnboarding }: { onOpenOnboarding: () => void }) 
   );
 }
 
+type TestState = { state: 'idle' } | { state: 'running' } | { state: 'ok' | 'error'; text: string };
+
 function AiSettings() {
-  const [key, setKey] = useState(loadApiKey() ?? '');
-  const [saved, setSaved] = useState(!!loadApiKey());
+  const [cfg, setCfg] = useState(loadAiConfig);
+  const [editing, setEditing] = useState(() => !isAiReady(loadAiConfig()));
+  const [test, setTest] = useState<TestState>({ state: 'idle' });
+  const [qr, setQr] = useState<{ svg: string; link: string } | null>(null);
+  const ready = isAiReady(cfg);
+
+  async function runTest() {
+    if (!isAiReady(cfg)) return;
+    setTest({ state: 'running' });
+    try {
+      const r = await estimateFood(cfg, { text: 'segelas teh manis', mealHint: 'Camilan' });
+      const first = r.items[0];
+      setTest({ state: 'ok', text: first ? `Tersambung! “${first.name}” ≈ ${first.calories} kkal` : 'Tersambung!' });
+    } catch (e) {
+      setTest({ state: 'error', text: e instanceof AiError ? e.message : 'Gagal menghubungi AI.' });
+    }
+  }
+
+  async function showQr() {
+    if (!isAiReady(cfg)) return;
+    const link = setupLink(cfg, window.location.href);
+    const { renderSVG } = await import('uqr');
+    setQr({ link, svg: renderSVG(link, { ecc: 'M', border: 2 }) });
+  }
+
+  async function copyLink(link: string) {
+    try {
+      await navigator.clipboard.writeText(link);
+      showToast({ icon: 'check', message: 'Link setup disalin' }, 2500);
+    } catch {
+      showToast({ icon: 'close', message: 'Tidak bisa menyalin otomatis' }, 2500);
+    }
+  }
 
   return (
     <Section icon="sparkle" tone="#8b7cf6" title="AI pengenal makanan">
-      <p className="muted">
-        API key Anthropic untuk menebak kalori dari foto (model {AI_MODEL}). Key hanya disimpan di perangkat ini dan
-        dikirim langsung ke Anthropic. Biaya API ditagih ke akunmu.
+      <p className="muted status-line">
+        {ready ? <Icon name="check" size={16} tone="var(--accent)" /> : <Icon name="close" size={16} tone="var(--danger)" />}
+        {providerLabel(ready ? cfg : null)}
       </p>
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          saveApiKey(key.trim() || null);
-          setSaved(!!key.trim());
-        }}
-      >
-        <input
-          type="password"
-          placeholder="sk-ant-…"
-          aria-label="API key Anthropic"
-          value={key}
-          onChange={(e) => {
-            setKey(e.target.value);
-            setSaved(false);
+
+      {ready && !editing ? (
+        <div className="row actions">
+          <button onClick={runTest} disabled={test.state === 'running'}>
+            <Icon name="sparkle" size={18} tone="#8b7cf6" />
+            {test.state === 'running' ? 'Mengetes…' : 'Tes koneksi'}
+          </button>
+          <button onClick={showQr}>
+            <Icon name="qr" size={18} />
+            Pasang di HP lain
+          </button>
+          <button onClick={() => setEditing(true)}>
+            <Icon name="pencil" size={18} />
+            Ubah
+          </button>
+        </div>
+      ) : (
+        <AiSetupForm
+          initial={cfg}
+          submitLabel="Simpan"
+          onSaved={(c) => {
+            setCfg(c);
+            setEditing(false);
+            setTest({ state: 'idle' });
+            setQr(null);
+            showToast({ icon: 'check', message: 'AI tersambung' }, 2500);
           }}
-          autoComplete="off"
         />
-        <button className="primary" type="submit">
-          <SavedLabel saved={saved} />
-        </button>
-      </form>
+      )}
+
+      {(test.state === 'ok' || test.state === 'error') && (
+        <p className={test.state === 'ok' ? 'muted status-line' : 'error'}>{test.text}</p>
+      )}
+
+      {qr && (
+        <div className="qr-box">
+          <img src={`data:image/svg+xml;utf8,${encodeURIComponent(qr.svg)}`} alt="QR untuk menyambungkan AI di perangkat lain" />
+          <p className="muted small">
+            Scan pakai kamera HP, aplikasi akan langsung tersambung. QR dan link ini berisi key, jangan dibagikan ke orang lain.
+          </p>
+          <div className="row actions center">
+            <button onClick={() => void copyLink(qr.link)}>Salin link</button>
+            <button onClick={() => setQr(null)}>Tutup</button>
+          </div>
+        </div>
+      )}
     </Section>
   );
 }
@@ -278,6 +339,40 @@ function SyncStatusLine() {
     <p className="muted status-line">
       <Icon name="check" size={16} tone="var(--accent)" /> Sinkron terakhir: {last}
     </p>
+  );
+}
+
+const buildLabel = new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(
+  new Date(__APP_BUILD__),
+);
+
+function AboutSection() {
+  const [checking, setChecking] = useState(false);
+
+  async function check() {
+    setChecking(true);
+    try {
+      const result = await checkForUpdate();
+      if (result === 'none') showToast({ icon: 'check', message: 'Sudah versi terbaru' }, 2500);
+      else if (result === 'found') showToast({ icon: 'refresh', message: 'Versi baru sedang diunduh…' }, 4000);
+      else showToast({ icon: 'close', message: 'Pembaruan otomatis tidak aktif di sini' }, 3000);
+    } catch {
+      showToast({ icon: 'close', message: 'Tidak bisa memeriksa pembaruan (offline?)' }, 3000);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <Section icon="bear" tone="var(--accent)" title="Tentang">
+      <p className="muted">
+        Kalori bareng {MASCOT_NAME} · versi {buildLabel}
+      </p>
+      <button className="link-btn" onClick={check} disabled={checking}>
+        <Icon name="refresh" size={18} />
+        {checking ? 'Memeriksa…' : 'Cek pembaruan'}
+      </button>
+    </Section>
   );
 }
 

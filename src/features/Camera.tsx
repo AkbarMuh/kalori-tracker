@@ -1,14 +1,6 @@
 import { createContext, useContext, useRef, useState, type ReactNode } from 'react';
-import {
-  AiCancelled,
-  AiError,
-  estimateFood,
-  loadApiKey,
-  photoPreview,
-  photoThumbnail,
-  photoToBase64,
-  saveApiKey,
-} from '../ai/estimate';
+import { isAiReady, loadAiConfig } from '../ai/config';
+import { AiCancelled, AiError, estimateFood, photoPreview, photoThumbnail, photoToBase64 } from '../ai/estimate';
 import { Icon } from '../components/Icon';
 import { PolarBear } from '../components/PolarBear';
 import { Sheet } from '../components/Sheet';
@@ -18,6 +10,7 @@ import { defaultMealForTime, timeOnDate } from '../lib/date';
 import { haptic } from '../lib/haptics';
 import { MASCOT_NAME } from '../lib/mascot';
 import { hideToast, showToast } from '../lib/toast';
+import { AiSetupForm } from './AiSetupForm';
 import { ItemsEditor } from './ItemsEditor';
 
 interface CameraApi {
@@ -63,11 +56,10 @@ export function CameraProvider({ date, isToday, children }: Props) {
   const galleryInput = useRef<HTMLInputElement>(null);
   const abort = useRef<AbortController | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
-  const [keyDraft, setKeyDraft] = useState('');
 
   async function run(input: { file?: File; text?: string }) {
-    const apiKey = loadApiKey();
-    if (!apiKey) return;
+    const ai = loadAiConfig();
+    if (!isAiReady(ai)) return;
     const controller = new AbortController();
     abort.current = controller;
     let preview: string | undefined;
@@ -79,7 +71,7 @@ export function CameraProvider({ date, isToday, children }: Props) {
         ? await Promise.all([photoToBase64(input.file), photoThumbnail(input.file)])
         : [undefined, undefined];
       const mealHint = MEAL_LABELS[defaultMealForTime(new Date())];
-      const estimate = await estimateFood(apiKey, { text: input.text, imageBase64, mealHint }, controller.signal);
+      const estimate = await estimateFood(ai, { text: input.text, imageBase64, mealHint }, controller.signal);
 
       if (estimate.items.length === 0) {
         setPhase({ kind: 'empty', preview, note: estimate.note });
@@ -138,7 +130,7 @@ export function CameraProvider({ date, isToday, children }: Props) {
   }
 
   function start(source: Source) {
-    if (!loadApiKey()) return setPhase({ kind: 'needKey', then: source });
+    if (!isAiReady(loadAiConfig())) return setPhase({ kind: 'needKey', then: source });
     if (source === 'camera') cameraInput.current?.click();
     else if (source === 'gallery') galleryInput.current?.click();
     else void run({ text: source.text });
@@ -231,31 +223,21 @@ export function CameraProvider({ date, isToday, children }: Props) {
       )}
 
       {phase.kind === 'needKey' && (
-        <Sheet title="Atur AI dulu" onClose={close}>
+        <Sheet title="Sambungkan AI dulu" onClose={close}>
           <p className="muted">
-            {MASCOT_NAME} butuh API key Anthropic untuk mengenali makanan dari foto. Key hanya disimpan di HP ini dan
-            biaya API ditagih ke akunmu.
+            {MASCOT_NAME} butuh AI untuk mengenali makanan dari foto. Untuk Azure, salin <b>Target URI</b> dan{' '}
+            <b>Key</b> dari halaman deployment-mu. Key hanya disimpan di perangkat ini.
           </p>
-          <input
-            type="password"
-            placeholder="sk-ant-…"
-            value={keyDraft}
-            onChange={(e) => setKeyDraft(e.target.value)}
-            autoComplete="off"
-          />
-          <button
-            className="primary"
-            disabled={!keyDraft.trim()}
-            onClick={() => {
-              saveApiKey(keyDraft.trim());
-              setKeyDraft('');
+          <AiSetupForm
+            initial={loadAiConfig()}
+            submitLabel="Simpan & lanjut"
+            onSaved={() => {
               const then = phase.then;
               close();
+              // Still inside the submit tap, so the camera picker is allowed to open.
               start(then);
             }}
-          >
-            Simpan & lanjut
-          </button>
+          />
         </Sheet>
       )}
 

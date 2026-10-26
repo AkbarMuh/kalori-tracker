@@ -26,9 +26,14 @@ npm run dev
 Buka alamat aplikasi di Chrome (Android) atau Safari (iPhone), lalu pilih **Add to Home Screen** / **Install app**.
 
 ### 2. AI pengenal makanan
-Buat API key di [console.anthropic.com](https://console.anthropic.com). Saat pertama kali menekan
-tombol kamera, aplikasi akan memintanya (bisa diubah di **Pengaturan → AI pengenal makanan**).
-Biaya pemakaian API ditagih ke akun Anthropic-mu.
+Saat pertama kali menekan tombol kamera, aplikasi meminta koneksi AI (bisa diubah di
+**Pengaturan → AI pengenal makanan**):
+- **Azure OpenAI:** buka deployment-mu di Azure AI Foundry, lalu salin **Target URI** dan **Key**.
+  Deployment harus mendukung input gambar dan structured outputs (mis. keluarga GPT-4.1).
+- **Claude:** API key dari [console.anthropic.com](https://console.anthropic.com).
+
+Untuk HP atau laptop lain: **Pengaturan → Pasang di HP lain**, lalu scan QR-nya. QR itu berisi key,
+jadi jangan dibagikan. Biaya pemakaian API ditagih ke akun pemilik key.
 
 ### 3. Sinkron data (opsional)
 1. Buat repo **privat** baru untuk data, mis. `kalori-data`. Boleh kosong.
